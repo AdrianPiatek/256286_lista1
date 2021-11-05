@@ -1,13 +1,17 @@
 import cv2.cv2 as cv2
+import os
 import numpy as np
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image, ImageTk
+import tensorflow as tf
+import tensorflow_hub as hub
 
-
+os.environ['TFHUB_MODEL_LOAD_FORMAT'] = 'COMPRESSED'
 root = tk.Tk()
 label = tk.Label(root)
 image = 0
+hub_model = hub.load('https://tfhub.dev/google/magenta/arbitrary-image-stylization-v1-256/2')
 
 
 def overlay_image(background, foreground, alpha):
@@ -39,12 +43,7 @@ def save_file():
     image.save(filename.name)
 
 
-def face_overlay():
-    filename = filedialog.askopenfilename()
-    global image
-    image = face_swap(filename)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(image)
+def show_img():
     img = ImageTk.PhotoImage(image=image)
 
     label.config(image=img)
@@ -52,12 +51,64 @@ def face_overlay():
     label.grid(row=0, column=0)
 
     save_button = tk.Button(root, text='save', command=save_file)
-    save_button.grid(row=2, column=0)
+    save_button.grid(row=3, column=0)
+
+
+def face_overlay():
+    filename = filedialog.askopenfilename()
+    global image
+    image = face_swap(filename)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = Image.fromarray(image)
+    show_img()
+
+
+def load_img(path_to_img):
+    max_dim = 512
+    img = tf.io.read_file(path_to_img)
+    img = tf.image.decode_image(img, channels=3)
+    img = tf.image.convert_image_dtype(img, tf.float32)
+
+    shape = tf.cast(tf.shape(img)[:-1], tf.float32)
+    long_dim = max(shape)
+    scale = max_dim / long_dim
+
+    new_shape = tf.cast(shape * scale, tf.int32)
+
+    img = tf.image.resize(img, new_shape)
+    img = img[tf.newaxis, :]
+    return img
+
+
+def tensor_to_image(tensor):
+    tensor = tensor * 255
+    tensor = np.array(tensor, dtype=np.uint8)
+    if np.ndim(tensor) > 3:
+        assert tensor.shape[0] == 1
+        tensor = tensor[0]
+    return Image.fromarray(tensor)
+
+
+def change(file_img, file_style):
+    img = load_img(file_img)
+    style = load_img(file_style)
+    img = hub_model(tf.constant(img), tf.constant(style))[0]
+    return tensor_to_image(img)
+
+
+def change_style():
+    filename_img = filedialog.askopenfilename()
+    filename_style = filedialog.askopenfilename()
+    global image
+    image = change(filename_img, filename_style)
+    show_img()
 
 
 def gui():
     button_face = tk.Button(root, text='face overlay', command=face_overlay)
     button_face.grid(row=1, column=0)
+    button_style = tk.Button(root, text='change style', command=change_style)
+    button_style.grid(row=2, column=0)
     root.mainloop()
 
 
